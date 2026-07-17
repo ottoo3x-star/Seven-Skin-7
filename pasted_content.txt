@@ -1,0 +1,380 @@
+You are working inside my existing Luxe Soaps e-commerce project.
+
+PRIMARY OBJECTIVE:
+Repair the existing application and deploy it successfully using Manus hosting. I want a fully working production store, not another compatibility guide or theoretical explanation.
+
+IMPORTANT:
+- Make the actual code changes directly in the project.
+- Do not stop after auditing or recommending changes.
+- Do not rebuild the application from scratch.
+- Preserve the current design, pages, products, database schema, authentication, cart, checkout, admin functionality, and existing working features.
+- Treat Manus as the primary production environment.
+- Do not convert the project to Vercel serverless architecture unless Manus absolutely requires it.
+- Do not blindly run the existing Vercel compatibility shell script.
+- Remove, correct, or isolate any Vercel-specific changes that conflict with Manus hosting.
+- Never expose database credentials, OAuth secrets, API keys, JWT secrets, or private environment variables to the frontend.
+
+CURRENT STACK APPEARS TO INCLUDE:
+- Vite frontend
+- React/TypeScript
+- Express backend
+- tRPC
+- Drizzle
+- MySQL or TiDB
+- OAuth authentication
+- pnpm
+
+PHASE 1 — AUDIT THE REAL PROJECT
+
+Inspect the actual repository before editing:
+
+1. Read:
+   - package.json
+   - vite.config.ts
+   - tsconfig files
+   - server/_core/index.ts
+   - server/_core/vite.ts
+   - server/_core/context.ts
+   - server/_core/oauth.ts
+   - server/routers.ts
+   - database configuration
+   - Drizzle configuration
+   - environment-variable usage
+   - Manus deployment configuration
+   - any vercel.json, api/ directory, .vercelignore, or Vercel-only files
+
+2. Determine:
+   - The real frontend output directory
+   - The real production server entry point
+   - How Manus starts Node applications
+   - Which package script Manus is currently running
+   - Whether the frontend and backend are deployed together
+   - Whether API requests use relative URLs or hardcoded localhost URLs
+   - Whether database migrations have been applied
+   - Whether OAuth callbacks use the correct production domain
+   - Whether any environment variables are missing
+   - Whether the SPA fallback is swallowing API routes
+   - Whether server startup or database initialization is crashing production
+
+3. Use the repository as the source of truth. Do not assume that the previous Vercel guide matches the current project.
+
+PHASE 2 — FIX THE MANUS PRODUCTION SERVER
+
+Create one clean Express application factory shared between development and production.
+
+Required architecture:
+
+- A createApp() function should:
+  - create the Express app
+  - register JSON and URL-encoded body parsing
+  - register authentication and OAuth routes
+  - register tRPC/API routes
+  - register /api/health
+  - register centralized error handling
+  - serve production static files only after API routes
+  - register the SPA fallback last
+
+- The local/Manus server entry should:
+  - import createApp()
+  - use process.env.PORT
+  - bind to 0.0.0.0
+  - call server.listen() exactly once
+  - avoid scanning for alternate ports in production
+  - log a clear successful startup message
+  - exit with a useful error when required startup configuration is invalid
+
+Use a structure similar to:
+
+server/_core/app.ts
+server/_core/index.ts
+
+The exact implementation must match the existing project.
+
+For Manus hosting, the server should conceptually behave like:
+
+const port = Number(process.env.PORT || 3000);
+server.listen(port, "0.0.0.0");
+
+Do not disable server.listen() merely because process.env.VERCEL exists if Manus is the real target.
+
+PHASE 3 — CORRECT BUILD AND START SCRIPTS
+
+Fix package.json scripts based on the real file structure.
+
+The final scripts must provide:
+
+- pnpm dev
+- pnpm check
+- pnpm build
+- pnpm start
+- pnpm test, when tests exist
+- database migration command
+
+The production build must:
+
+1. Build the Vite frontend.
+2. Build or compile the Node server.
+3. Preserve server-side dependencies correctly.
+4. Produce a startable production entry file.
+5. Ensure the server knows the real frontend output directory.
+
+Do not invent dist/public unless vite.config.ts actually outputs there.
+
+Do not delete or ignore:
+- vite.config.ts
+- tsconfig files
+- drizzle.config.ts
+
+when they are required during the Manus build.
+
+After changing scripts, run:
+
+pnpm install
+pnpm check
+pnpm build
+
+Then run the production server using the exact command Manus will use.
+
+PHASE 4 — REMOVE CONFLICTING VERCEL CHANGES
+
+Inspect any existing:
+
+- vercel.json
+- api/[...].ts
+- api/index.ts
+- server/_core/vercel.ts
+- .vercelignore
+- @vercel/node dependency
+
+If these were added only for the failed Vercel conversion and are not used by Manus:
+
+- remove them, or
+- move them out of the active production path
+
+Do not allow both a standalone Express server and a conflicting serverless handler to control the same routes.
+
+Specifically check for and repair:
+
+- an invalid export default app where app is scoped inside another function
+- duplicate Express app initialization
+- duplicate OAuth route registration
+- duplicate body parsers
+- duplicate tRPC registration
+- catch-all routes executing before API routes
+- invalid Vercel catch-all filenames
+- outputDirectory mismatches
+- environment references such as @database_url that are not configured secrets
+- runtime declarations that are unsupported
+- CORS set to Access-Control-Allow-Origin: * while using cookies or credentials
+
+PHASE 5 — ENVIRONMENT VARIABLES
+
+Create a single typed environment validation module.
+
+Separate server-only variables from Vite client variables.
+
+Server-only variables may include:
+
+- DATABASE_URL
+- JWT_SECRET
+- OAUTH_SERVER_URL
+- OWNER_OPEN_ID
+- OWNER_NAME
+- BUILT_IN_FORGE_API_KEY
+- other private API keys
+
+Only variables intentionally exposed to the browser may use the VITE_ prefix.
+
+Requirements:
+
+- Never expose JWT_SECRET, DATABASE_URL, OAuth secrets, private Forge keys, or database credentials through VITE_ variables.
+- Report missing required variables clearly during startup.
+- Do not log secret values.
+- Use a production APP_URL or PUBLIC_APP_URL for OAuth callbacks and redirects.
+- Remove localhost callback URLs from production behavior.
+- Document exactly which values I must enter in Manus environment settings.
+
+PHASE 6 — DATABASE RELIABILITY
+
+Verify the database connection using the actual database library.
+
+Required fixes:
+
+- Use a serverless-safe or production-safe connection pool if the current code repeatedly opens connections.
+- Do not create a new database connection for every small operation when avoidable.
+- Handle connection failures with clear errors.
+- Ensure migrations match the current schema.
+- Run or prepare the correct migration command.
+- Do not delete existing customer, product, order, or authentication data.
+- Verify production can perform a simple database query.
+
+Check the required tables for:
+
+- users
+- sessions or OAuth identities
+- products
+- product variants
+- carts
+- orders
+- order items
+- customers
+- inventory, if implemented
+
+Do not fabricate tables that the application does not need. Use the current schema.
+
+PHASE 7 — AUTHENTICATION AND OAUTH
+
+Repair the complete authentication flow.
+
+Verify:
+
+- login route loads
+- OAuth initiation works
+- OAuth callback uses the Manus production domain
+- state/nonce validation remains enabled
+- cookies use secure production settings
+- cookies are not blocked by incorrect SameSite configuration
+- sessions survive navigation and refresh
+- logout works
+- protected admin routes reject unauthorized users
+- owner/admin access is based on secure server-side checks
+- redirects never point to localhost in production
+
+Do not weaken authentication merely to make deployment pass.
+
+PHASE 8 — STORE FUNCTIONALITY
+
+Verify and repair the user journey:
+
+1. Home page loads.
+2. Product collection loads.
+3. Product detail page loads.
+4. Product images and static assets load.
+5. Product can be added to cart.
+6. Cart quantity can be updated.
+7. Item can be removed.
+8. Cart totals are calculated correctly.
+9. Checkout page loads.
+10. Customer information can be submitted.
+11. Order can be created.
+12. Confirmation page loads.
+13. Refreshing a frontend route does not return a 404.
+14. API routes return JSON rather than index.html.
+15. Admin or owner routes work for the authorized account.
+
+If external payment processing is already implemented, test it in sandbox/test mode.
+
+If payment processing is not implemented, do not fake successful card payments. Keep checkout functional as an order-placement flow and clearly mark payment integration as pending.
+
+PHASE 9 — STATIC FILES AND ROUTING
+
+Fix production asset handling.
+
+Requirements:
+
+- Express must serve the exact folder generated by Vite.
+- Static middleware must be registered after API routes.
+- The SPA fallback must only handle browser page requests.
+- Requests under /api must never return index.html.
+- Missing API routes should return JSON 404 responses.
+- Existing product images, logos, fonts, and icons must load in production.
+- Remove hardcoded localhost references from frontend API calls.
+- Prefer relative URLs such as /api/trpc where appropriate.
+
+PHASE 10 — SECURITY
+
+Keep or add:
+
+- secure HTTP headers
+- proper cookie settings
+- request validation
+- centralized error handling
+- safe CORS limited to the real production origin
+- rate limiting on authentication, checkout, contact, and sensitive API routes
+- input-size limits appropriate for the actual store
+- sanitized user-facing error messages
+- server-side authorization for admin actions
+
+Do not use unrestricted CORS with credentialed authentication.
+
+Do not use a 50 MB body limit globally unless the application genuinely needs it. Use route-specific upload limits.
+
+PHASE 11 — VALIDATION
+
+After implementation, run all available checks:
+
+pnpm install
+pnpm check
+pnpm test
+pnpm build
+
+Start the production app with the final start command.
+
+Then validate:
+
+- GET / returns HTTP 200
+- GET /api/health returns HTTP 200 JSON
+- an existing tRPC/API endpoint responds correctly
+- a nonexistent /api route returns JSON 404
+- a frontend route loads directly and after refresh
+- static assets return HTTP 200
+- database connection succeeds
+- authentication callback route exists
+- no secret appears in the frontend bundle
+- no unhandled startup exception appears
+- no infinite redirect occurs
+- no localhost production URL remains
+
+Use curl or equivalent requests to verify these endpoints.
+
+PHASE 12 — MANUS DEPLOYMENT
+
+Deploy the corrected project through Manus.
+
+Before declaring completion:
+
+- confirm the Manus build succeeds
+- confirm the Manus application starts
+- open the public deployment
+- test the home page
+- test a product page
+- test cart behavior
+- test authentication
+- test checkout/order creation
+- inspect production logs for runtime errors
+
+If deployment fails, continue debugging from the actual logs. Do not stop at the first error.
+
+FINAL RESPONSE FORMAT
+
+When the store is working, provide:
+
+1. Root cause summary
+2. Files created
+3. Files modified
+4. Files removed
+5. Final package scripts
+6. Required Manus environment variables, with placeholders rather than secret values
+7. Database migration status
+8. Authentication status
+9. Store functionality test results
+10. Production deployment URL
+11. Any remaining limitation that genuinely requires information or credentials from me
+
+SUCCESS CRITERIA
+
+The task is not complete until:
+
+- the Manus production deployment builds successfully
+- the server starts successfully
+- the public store loads
+- product pages and images load
+- API routes work
+- database access works
+- authentication works
+- cart works
+- checkout or order creation works
+- refreshing frontend routes does not cause 404 errors
+- production logs show no fatal errors
+
+Begin by inspecting the real project, then make the changes immediately.
